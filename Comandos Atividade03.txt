@@ -1,0 +1,93 @@
+criar rede
+docker network create mongo-shard
+
+criando configServers
+docker run --name mongo-config01 --net mongo-shard -d mongo mongod --configsvr --replSet configserver --port 27017
+docker run --name mongo-config02 --net mongo-shard -d mongo mongod --configsvr --replSet configserver --port 27017
+docker run --name mongo-config03 --net mongo-shard -d mongo mongod --configsvr --replSet configserver --port 27017
+
+acessando shell de um container configserver
+docker exec -it mongo-config01 mongo
+
+executar o comando para iniciar a operação dos servidores de configuração
+rs.initiate(
+   {
+      _id: "configserver",
+      configsvr: true,
+      version: 1,
+      members: [
+         { _id: 0, host : "mongo-config01:27017" },
+         { _id: 1, host : "mongo-config02:27017" },
+         { _id: 2, host : "mongo-config03:27017" }
+      ]
+   }
+)
+
+criação shard01
+docker run --name mongo-shard1a --net mongo-shard -d mongo mongod --port 27018 --shardsvr --replSet shard01
+docker run --name mongo-shard1b --net mongo-shard -d mongo mongod --port 27018 --shardsvr --replSet shard01
+
+criação shard02
+docker run --name mongo-shard2a --net mongo-shard -d mongo mongod --port 27019 --shardsvr --replSet shard02
+docker run --name mongo-shard2b --net mongo-shard -d mongo mongod --port 27019 --shardsvr --replSet shard02
+
+criação shard03
+docker run --name mongo-shard3a --net mongo-shard -d mongo mongod --port 27020 --shardsvr --replSet shard03
+docker run --name mongo-shard3b --net mongo-shard -d mongo mongod --port 27020 --shardsvr --replSet shard03
+
+configurar e iniciar shard01
+docker exec -it mongo-shard1a mongo --port 27018
+
+executar o comando
+rs.initiate(
+   {
+      _id: "shard01",
+      version: 1,
+      members: [
+         { _id: 0, host : "mongo-shard1a:27018" },
+         { _id: 1, host : "mongo-shard1b:27018" },
+      ]
+   }
+)
+
+configurar e iniciar shard02
+docker exec -it mongo-shard2a mongo --port 27019
+
+executar o comando
+rs.initiate(
+   {
+      _id: "shard02",
+      version: 1,
+      members: [
+         { _id: 0, host : "mongo-shard2a:27019" },
+         { _id: 1, host : "mongo-shard2b:27019" },
+      ]
+   }
+)
+
+configurar e iniciar shard03
+docker exec -it mongo-shard3a mongo --port 27020
+
+executar o comando
+rs.initiate(
+   {
+      _id: "shard03",
+      version: 1,
+      members: [
+         { _id: 0, host : "mongo-shard3a:27020" },
+         { _id: 1, host : "mongo-shard3b:27020" },
+      ]
+   }
+)
+
+iniciar o serviço do roteador (mongos)
+docker run -p 27017:27017 --name mongo-router --net mongo-shard -d mongo mongos --port 27017 --configdb configserver/mongo-config01:27017,mongo-config02:27017,mongo-config03:27017 --bind_ip_all
+
+configurar o roteador para que ele conheça os shards disponiveis
+docker exec -it mongo-router mongo
+sh.addShard("shard01/mongo-shard1a:27018")
+sh.addShard("shard01/mongo-shard1b:27018") 
+sh.addShard("shard02/mongo-shard2a:27019")
+sh.addShard("shard02/mongo-shard2b:27019") 
+sh.addShard("shard03/mongo-shard3a:27020")
+sh.addShard("shard03/mongo-shard3b:27020")
